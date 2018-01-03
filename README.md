@@ -7,6 +7,9 @@ An Open-Source tool for working with lighthouse-based tracking data, including s
 Most of the development is discussed on Discord.  Join the chat and discussion here: https://discordapp.com/invite/7QbCAGS
 
 ## Livestream collection
+
+If you are an individual who bothers going back and watching some of these, PLEASE PLEASE PLEASE add a note to https://github.com/cnlohr/libsurvive/issues/66 whenever something interesting happens.  I want to make a highlight reel, but I don't want to sit through all the videos.
+
 | Note                                   | Youtube URL                                 | Run time |
 | -------------------------------------- | ------------------------------------------- | -------- |
 | First livestream                       | https://www.youtube.com/watch?v=sv_AVI9kHN4 | 5:01:25  |
@@ -17,6 +20,11 @@ Most of the development is discussed on Discord.  Join the chat and discussion h
 | Fifth livestream                       | https://www.youtube.com/watch?v=hHt3twW5_fI | 3:13:38 |
 | Sixth livestream                       | https://www.youtube.com/watch?v=JsfkNRFkFM4 | 3:44:49 |
 | Seventh livestream                     | https://www.youtube.com/watch?v=EKSHvO3QSWY | 1:17:21 |
+| Eighth livestream                      | https://www.youtube.com/watch?v=nSbEltdH9vM | 6:06:36 |
+| Ninth livestream                       | https://www.youtube.com/watch?v=60sGTd8T-KY | 3:28:44 |
+| Ninth B livestream                     | https://www.youtube.com/watch?v=IIYj1Ig_gz8 | 2:25:33 |
+| May 2017 Summary                       | https://www.youtube.com/watch?v=dVXpHKktbzM | 5:58    |
+| Tenth livestream                       | https://www.youtube.com/watch?v=8hqviGMlU7I | 3:30:46 |
 
 Notes from second livestream trying to reverse engineer the watchman protocol: https://gist.github.com/cnlohr/581c433f36f4249f8bbc9c2b6450ef0e
 
@@ -25,6 +33,8 @@ Please see the issues for what help needs to be done now!
 ## Extra resources
 
 HackADay article and video with Dr. Yates on how they made the Vive a thing. http://hackaday.com/2016/12/21/alan-yates-why-valves-lighthouse-cant-work/
+
+Excellent article written by Oliver Kreylos showing just how amazing the lighthouse system really is.  Likely the best/most detailed review on the performance *and* accuracy of the lighthouse system. http://doc-ok.org/?p=1478  
 
 
 ## Nomenclature
@@ -46,7 +56,7 @@ HackADay article and video with Dr. Yates on how they made the Vive a thing. htt
 
 There are two things you should consider doing to your system before running libsurvive.
 
-(1) Install the udev rules:  ```cp usefulfiles/81-vive.rules to /etc/udev/rules.d/``` and reboot.
+(1) Install the udev rules:  ```cp useful_files/81-vive.rules to /etc/udev/rules.d/``` and reboot.
 (2) If you are running on an NVIDIA Card, you will need to AllowHMD to true.  Add the following line to your /etc/X11/xorg.conf device section:  ```Option "AllowHMD" "yes"```
 
 ## Introduction
@@ -129,5 +139,5 @@ To support the Vive on HDMI, you either need a newer version of HDMI, or you nee
 
 ## Addendum and notes
 
-Thanks to Mr. Fault for our logo!
+Thanks to Mr. Faul for our logo!
 Special thanks to @nairol for an extreme amount of detail in reverse engineering the existing HTC Vive system on his https://github.com/nairol/LighthouseRedox project.

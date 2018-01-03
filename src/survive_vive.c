@@ -22,6 +22,8 @@
 #include <malloc.h> // for alloca
 #endif
 
+#include "json_helpers.h"
+
 #ifdef HIDAPI
 #if defined(WINDOWS) || defined(WIN32) || defined (_WIN32)
 #include <windows.h>
@@ -812,6 +814,35 @@ int survive_get_config( char ** config, SurviveViveData * sv, int devno, int ifa
 #define POP2  (*(((uint16_t*)((readdata+=2)-2))))
 #define POP4  (*(((uint32_t*)((readdata+=4)-4))))
 
+void calibrate_acc(SurviveObject* so, FLT* agm) {
+	if (so->acc_bias != NULL) {
+		agm[0] -= so->acc_bias[0];
+		agm[1] -= so->acc_bias[1];
+		agm[2] -= so->acc_bias[2];
+	}
+
+	if (so->acc_scale != NULL) {
+		agm[0] *= so->acc_scale[0];
+		agm[1] *= so->acc_scale[1];
+		agm[2] *= so->acc_scale[2];
+	}
+}
+
+void calibrate_gyro(SurviveObject* so, FLT* agm) {
+	if (so->gyro_bias != NULL) {
+		agm[0] -= so->gyro_bias[0];
+		agm[1] -= so->gyro_bias[1];
+		agm[2] -= so->gyro_bias[2];
+	}
+
+	if (so->gyro_scale != NULL) {
+		agm[0] *= so->gyro_scale[0];
+		agm[1] *= so->gyro_scale[1];
+		agm[2] *= so->gyro_scale[2];
+	}
+}
+
+
 static void handle_watchman( SurviveObject * w, uint8_t * readdata )
 {
 
@@ -888,6 +919,21 @@ static void handle_watchman( SurviveObject * w, uint8_t * readdata )
 		FLT agm[9] = { readdata[1], readdata[2], readdata[3],
 						readdata[4], readdata[5], readdata[6],
 						0,0,0 };
+
+//		if (w->acc_scale) printf("%f %f %f\n",w->acc_scale[0],w->acc_scale[1],w->acc_scale[2]);
+		calibrate_acc(w, agm);
+
+		//I don't understand where these numbers come from but the data from the WMD seems to max out at 255...
+		agm[0]*=(1.0f/255.0f);
+		agm[1]*=(1.0f/255.0f);
+		agm[2]*=(1.0f/255.0f);
+
+		calibrate_gyro(w, agm+3);
+
+		//I don't understand where these numbers come from but the data from the WMD seems to max out at 255...
+		agm[3]*=(1.0f/255.0f);
+		agm[4]*=(1.0f/255.0f);
+		agm[5]*=(1.0f/255.0f);
 
 		w->ctx->imuproc( w, 3, agm, (time1<<24)|(time2<<16)|readdata[0], 0 );
 
@@ -1057,7 +1103,6 @@ static void handle_watchman( SurviveObject * w, uint8_t * readdata )
 	}
 }
 
-
 void survive_data_cb( SurviveUSBInterface * si )
 {
 	int size = si->actual_len;
@@ -1126,6 +1171,23 @@ void survive_data_cb( SurviveUSBInterface * si )
 				FLT agm[9] = { acceldata[0], acceldata[1], acceldata[2],
 								acceldata[3], acceldata[4], acceldata[5],
 								0,0,0 };
+
+				agm[0]*=(float)(1./8192.0);
+				agm[1]*=(float)(1./8192.0);
+				agm[2]*=(float)(1./8192.0);
+				calibrate_acc(obj, agm);
+
+				//1G for accelerometer, from MPU6500 datasheet
+				//this can change if the firmware changes the sensitivity.
+
+
+				agm[3]*=(float)((1./32.768)*(3.14159/180.));
+				agm[4]*=(float)((1./32.768)*(3.14159/180.));
+				agm[5]*=(float)((1./32.768)*(3.14159/180.));
+				calibrate_gyro(obj, agm+3);
+
+				//65.5 deg/s for gyroscope, from MPU6500 datasheet
+				//1000 deg/s for gyroscope, from MPU6500 datasheet
 
 				ctx->imuproc( obj, 3, agm, timecode, code );
 			}
@@ -1310,6 +1372,40 @@ printf( "Loading config: %d\n", len );
 					break;
 				}
 			}
+
+
+			if (jsoneq(ct0conf, tk, "acc_bias") == 0) {
+				int32_t count = (tk+1)->size;
+				FLT* values = NULL;
+				if ( parse_float_array(ct0conf, tk+2, &values, count) >0 ) {
+					so->acc_bias = values;
+					so->acc_bias[0] *= .125; //XXX Wat?  Observed by CNL.  Biasing by more than this seems to hose things.
+					so->acc_bias[1] *= .125;
+					so->acc_bias[2] *= .125;
+				}
+			}
+			if (jsoneq(ct0conf, tk, "acc_scale") == 0) {
+				int32_t count = (tk+1)->size;
+				FLT* values = NULL;
+				if ( parse_float_array(ct0conf, tk+2, &values, count) >0 ) {
+					so->acc_scale = values;
+				}
+			}
+
+			if (jsoneq(ct0conf, tk, "gyro_bias") == 0) {
+				int32_t count = (tk+1)->size;
+				FLT* values = NULL;
+				if ( parse_float_array(ct0conf, tk+2, &values, count) >0 ) {
+					so->gyro_bias = values;
+				}
+			}
+			if (jsoneq(ct0conf, tk, "gyro_scale") == 0) {
+				int32_t count = (tk+1)->size;
+				FLT* values = NULL;
+				if ( parse_float_array(ct0conf, tk+2, &values, count) >0 ) {
+					so->gyro_scale = values;
+				}
+			}
 		}
 	}
 	else
@@ -1349,6 +1445,12 @@ int survive_vive_close( SurviveContext * ctx, void * driver )
 	return 0;
 }
 
+void init_SurviveObject(SurviveObject* so) {
+	so->acc_scale = NULL;
+	so->acc_bias = NULL;
+	so->gyro_scale = NULL;
+	so->gyro_bias = NULL;
+}
 
 int DriverRegHTCVive( SurviveContext * ctx )
 {
@@ -1359,6 +1461,12 @@ int DriverRegHTCVive( SurviveContext * ctx )
 	SurviveObject * tr0 = calloc( 1, sizeof( SurviveObject ) );
 	SurviveObject * ww0 = calloc( 1, sizeof( SurviveObject ) );
 	SurviveViveData * sv = calloc( 1, sizeof( SurviveViveData ) );
+
+	init_SurviveObject(hmd);
+	init_SurviveObject(wm0);
+	init_SurviveObject(wm1);
+	init_SurviveObject(tr0);
+	init_SurviveObject(ww0);
 
 	sv->ctx = ctx;
 	

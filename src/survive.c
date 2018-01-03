@@ -75,6 +75,10 @@ SurviveContext * survive_init( int headless )
 
 	config_read(ctx, "config.json");
 
+	ctx->activeLighthouses = config_read_uint32(ctx->global_config_values, "LighthouseCount", 2);
+	config_read_lighthouse(ctx->lh_config, &(ctx->bsd[0]), 0);
+	config_read_lighthouse(ctx->lh_config, &(ctx->bsd[1]), 1);
+
 	ctx->faultfunction = survivefault;
 	ctx->notefunction = survivenote;
 
@@ -92,7 +96,8 @@ SurviveContext * survive_init( int headless )
 	}
 
 	i = 0;
-	const char * PreferredPoser = config_read_str( ctx->global_config_values, "DefaultPoser", "PoserDummy" );
+	//const char * PreferredPoser = config_read_str(ctx->global_config_values, "DefaultPoser", "PoserDummy");
+	const char * PreferredPoser = config_read_str(ctx->global_config_values, "DefaultPoser", "PoserTurveyTori");
 	PoserCB PreferredPoserCB = 0;
 	const char * FirstPoser = 0;
 	printf( "Available posers:\n" );
@@ -114,6 +119,9 @@ SurviveContext * survive_init( int headless )
 	{
 		ctx->objs[i]->PoserFn = PreferredPoserCB;
 	}
+
+	// saving the config extra to make sure that the user has a config file they can change.
+	config_save(ctx, "config.json");
 
 	return ctx;
 }

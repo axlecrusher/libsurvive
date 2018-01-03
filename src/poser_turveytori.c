@@ -15,6 +15,8 @@
 #endif
 
 
+static int ttDebug = 0;
+
 #define PointToFlts(x) ((FLT*)(x))
 
 typedef struct
@@ -85,7 +87,8 @@ typedef struct
 	int lastAxis[NUM_LIGHTHOUSES];
 
 	Point lastLhPos[NUM_LIGHTHOUSES];
-	FLT lastLhRotAxisAngle[NUM_LIGHTHOUSES][4];
+//	FLT lastLhRotAxisAngle[NUM_LIGHTHOUSES][4];
+	FLT lastLhRotQuat[NUM_LIGHTHOUSES][4];
 } ToriData;
 
 
@@ -386,13 +389,19 @@ FLT getPointFitnessForPna(Point pointIn, PointsAndAngle *pna)
 	return dist;
 }
 
+int compareFlts(const void * a, const void * b)
+{
+	FLT a2 = *(const FLT*)a;
+	FLT b2 = *(const FLT*)b;
+	return (a2 > b2) - (a2 < b2);
+}
+
 FLT getPointFitness(Point pointIn, PointsAndAngle *pna, size_t pnaCount, int deubgPrint)
 {
 	FLT fitness;
 
 	FLT resultSum = 0;
 	FLT *fitnesses = alloca(sizeof(FLT) * pnaCount);
-	int i=0, j=0;
 
 	FLT worstFitness = 0;
 
@@ -402,30 +411,28 @@ FLT getPointFitness(Point pointIn, PointsAndAngle *pna, size_t pnaCount, int deu
 
 		if (worstFitness < fitness)
 		{
-			i = pna[i].ai;
-			j = pna[i].bi;
 			worstFitness = fitness;
 		}
 
-		fitnesses[i] = fitness;
-		if (deubgPrint)
+		fitnesses[i] = FLT_FABS(fitness);
+		if (0)
 		{
 			printf("  [%d, %d](%f)\n", pna[i].ai, pna[i].bi, fitness);
 		}
 	}
 
-	for (size_t i = 0; i < pnaCount; i++)
+
+	qsort(fitnesses, pnaCount, sizeof(FLT), compareFlts);
+
+	//printf("wf[%f]\n", worstFitness);
+
+
+    // Note that we're only using the best 70% of the tori.
+    // This is to remove any "bad" outliers.
+    // TODO: better algorithms exist.
+	for (size_t i = 0; i < (size_t)(pnaCount * 0.70); i++)
 	{
-		// TODO:  This is an UGLY HACK!!!  It is NOT ROBUST and MUST BE BETTER
-		// Right now, we're just throwing away the single worst fitness value
-		// this works frequently, but we REALLY need to do a better job of determing
-		// exactly when we should throw away a bad value.  I'm thinking that decision 
-		// alone could be a master's thesis, so lots of work to be done.
-		// This is just a stupid general approach that helps in a lot of cases,
-		// but is NOT suitable for long term use.
-		//if (pna[i].bi != i && pna[i].bi != j && pna[i].ai != i && pna[i].ai != j)
-		if (fitnesses[i] != worstFitness)
-			resultSum += SQUARED(fitnesses[i]);
+		resultSum += SQUARED(fitnesses[i]);
 	}
 	return 1 / FLT_SQRT(resultSum);
 }
@@ -581,7 +588,7 @@ static Point RefineEstimateUsingModifiedGradientDescent1(Point initialEstimate, 
 			break;
 		}
 	}
-	printf(" i=%3d ", i);
+	if (ttDebug) printf(" i=%3d ", i);
 
 	return lastPoint;
 }
@@ -768,6 +775,21 @@ FLT RotationEstimateFitnessAxisAngleOriginal(Point lhPoint, FLT *quaternion, Tra
 // just an x or y axis to make our estimate better.  TODO: bring that data to this fn.
 FLT RotationEstimateFitnessQuaternion(Point lhPoint, FLT *quaternion, TrackedObject *obj)
 {
+
+// TODO: ************************************************************************************************** THIS LIES!!!! NEED TO DO THIS IN QUATERNIONS!!!!!!!!!!!!!!!!!
+	{
+		FLT axisAngle[4];
+
+		axisanglefromquat(&(axisAngle[3]), axisAngle, quaternion);
+
+		FLT throwaway = RotationEstimateFitnessAxisAngle(lhPoint, axisAngle, obj);
+
+		int a = throwaway;
+		return throwaway;
+	}
+
+
+
 	FLT fitness = 0;
 	for (size_t i = 0; i < obj->numSensors; i++)
 	{
@@ -906,7 +928,7 @@ static void WhereIsTheTrackedObjectAxisAngle(FLT *posOut, FLT *rotation, Point l
 	
 	rotatearoundaxis(posOut, posOut, rotation, rotation[3]);
 
-	printf("{% 04.4f, % 04.4f, % 04.4f}  ", posOut[0], posOut[1], posOut[2]);
+	if (ttDebug) printf("{% 04.4f, % 04.4f, % 04.4f}  ", posOut[0], posOut[1], posOut[2]);
 }
 
 static void RefineRotationEstimateAxisAngle(FLT *rotOut, Point lhPoint, FLT *initialEstimate, TrackedObject *obj)
@@ -1007,24 +1029,62 @@ static void RefineRotationEstimateAxisAngle(FLT *rotOut, Point lhPoint, FLT *ini
 			break;
 		}
 	}
-	printf(" Ri=%d ", i);
+	if (ttDebug) printf(" Ri=%d ", i);
 }
-static void WhereIsTheTrackedObjectQuaternion(FLT *rotation, Point lhPoint)
+//static void WhereIsTheTrackedObjectQuaternion(FLT *rotation, Point lhPoint)
+//{
+//	FLT reverseRotation[4] = { rotation[0], rotation[1], rotation[2], -rotation[3] };
+//	FLT objPoint[3] = { lhPoint.x, lhPoint.y, lhPoint.z };
+//
+//	//rotatearoundaxis(objPoint, objPoint, reverseRotation, reverseRotation[3]);
+//	quatrotatevector(objPoint, rotation, objPoint);
+//	if (ttDebug) printf("(%f, %f, %f)\n", objPoint[0], objPoint[1], objPoint[2]);
+//}
+static void WhereIsTheTrackedObjectQuaternion(FLT *posOut, FLT *rotation, Point lhPoint)
 {
-	FLT reverseRotation[4] = {rotation[0], rotation[1], rotation[2], -rotation[3]};
-	FLT objPoint[3] = {lhPoint.x, lhPoint.y, lhPoint.z};
-	
+	posOut[0] = -lhPoint.x;
+	posOut[1] = -lhPoint.y;
+	posOut[2] = -lhPoint.z;
+
+	FLT inverseRotation[4];
+
+	quatgetreciprocal(inverseRotation, rotation);
+
+	FLT objPoint[3] = { lhPoint.x, lhPoint.y, lhPoint.z };
+
 	//rotatearoundaxis(objPoint, objPoint, reverseRotation, reverseRotation[3]);
-	quatrotatevector(objPoint, rotation, objPoint);
-	printf("(%f, %f, %f)\n", objPoint[0], objPoint[1], objPoint[2]);
+	quatrotatevector(posOut, inverseRotation, posOut);
+//	if (ttDebug) printf("(%f, %f, %f)\n", objPoint[0], objPoint[1], objPoint[2]);
 }
 
+//static void WhereIsTheTrackedObjectAxisAngle(FLT *posOut, FLT *rotation, Point lhPoint)
+//{
+//	posOut[0] = -lhPoint.x;
+//	posOut[1] = -lhPoint.y;
+//	posOut[2] = -lhPoint.z;
+//
+//	rotatearoundaxis(posOut, posOut, rotation, rotation[3]);
+//
+//	if (ttDebug) printf("{% 04.4f, % 04.4f, % 04.4f}  ", posOut[0], posOut[1], posOut[2]);
+//}
 
 
 static void RefineRotationEstimateQuaternion(FLT *rotOut, Point lhPoint, FLT *initialEstimate, TrackedObject *obj)
 {
 	int i = 0;
+
 	FLT lastMatchFitness = RotationEstimateFitnessQuaternion(lhPoint, initialEstimate, obj);
+
+	//{
+	//	FLT axisAngle[4];
+
+	//	axisanglefromquat(&(axisAngle[3]), axisAngle, initialEstimate);
+
+	//	FLT throwaway = RotationEstimateFitnessAxisAngle(lhPoint, axisAngle, obj);
+
+	//	int a = throwaway;
+	//}
+
 
 	quatcopy(rotOut, initialEstimate);
 
@@ -1101,9 +1161,9 @@ static void RefineRotationEstimateQuaternion(FLT *rotOut, Point lhPoint, FLT *in
 //#ifdef TORI_DEBUG
 			//printf("+  %8.8f, (%8.8f, %8.8f, %8.8f) %f\n", newMatchFitness, point4[0], point4[1], point4[2], point4[3]);
 //#endif
-			g *= 1.02;
-			printf("+");
-			WhereIsTheTrackedObjectQuaternion(rotOut, lhPoint);
+			g *= 1.04;
+			 //printf("+");
+			//WhereIsTheTrackedObjectQuaternion(rotOut, lhPoint);
 		}
 		else
 		{
@@ -1111,7 +1171,8 @@ static void RefineRotationEstimateQuaternion(FLT *rotOut, Point lhPoint, FLT *in
 			//printf("-         , %f\n", point4[3]);
 //#endif
 			g *= 0.7;
-			printf("-");
+			//printf("-");
+			//printf("%3f", lastMatchFitness);
 		}
 
 
@@ -1127,7 +1188,7 @@ void SolveForRotation(FLT rotOut[4], TrackedObject *obj, Point lh)
 	// This should have the lighthouse directly facing the tracked object.
 	Point trackedObjRelativeToLh = { .x = -lh.x,.y = -lh.y,.z = -lh.z };
 	FLT theta = atan2(-lh.x, -lh.y);
-	FLT zAxis[4] = { 0, 0, 1 , theta-LINMATHPI/2};
+	FLT zAxis[4] = { 0, 0, 1 , theta - LINMATHPI / 2 };
 	FLT quat1[4];
 	quatfromaxisangle(quat1, zAxis, theta);
 
@@ -1146,8 +1207,34 @@ void SolveForRotation(FLT rotOut[4], TrackedObject *obj, Point lh)
 
 }
 
+void SolveForRotationQuat(FLT rotOut[4], TrackedObject *obj, Point lh)
+{
 
-static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *obj, SurviveObject *so, char doLogOutput, int lh, int setLhCalibration)
+	// Step 1, create initial quaternion for guess.  
+	// This should have the lighthouse directly facing the tracked object.
+	Point trackedObjRelativeToLh = { .x = -lh.x,.y = -lh.y,.z = -lh.z };
+	FLT theta = atan2(-lh.x, -lh.y);
+	FLT zAxis[4] = { 0, 0, 1 , theta - LINMATHPI / 2 };
+	FLT quat1[4];
+	quatfromaxisangle(quat1, zAxis, theta);
+
+	//quatfrom2vectors(0,0)
+	// not correcting for phi, but that's less important.
+
+
+	// Step 2, optimize the axis/ angle to match the data.
+	//RefineRotationEstimateAxisAngle(rotOut, lh, zAxis, obj);
+
+
+	//// Step 2, optimize the quaternion to match the data.
+	RefineRotationEstimateQuaternion(rotOut, lh, quat1, obj);
+
+	//WhereIsTheTrackedObjectQuaternion(rotOut, lh);
+
+}
+
+
+static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *obj, SurviveObject *so, char doLogOutput,const int lh,const int setLhCalibration)
 {
 	ToriData *toriData = so->PoserData;
 
@@ -1249,61 +1336,92 @@ static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *ob
 		p1.z = toriData->lastLhPos[lh].z;
 	}
 
+	// refinedEstimateGd is the estimate for the location of the lighthouse in the tracked 
+	// object's local coordinate system.
 	Point refinedEstimateGd = RefineEstimateUsingModifiedGradientDescent1(p1, pna, pnaCount, logFile);
 
 	FLT pf1[3] = { refinedEstimateGd.x, refinedEstimateGd.y, refinedEstimateGd.z };
 
+	// here we're checking the direction of the found point against the average direction of the 
+	// normal direction of the sensors that saw the light pulse.
+	// This is because there are two possible points of convergence for the tori.  One is the correct
+	// location of the lighthouse.  The other is in almost exactly the opposite direction.
+	// The easiest way to determine that we've converged correctly is to see if the sensors' normal
+	// are pointing in the direction of the point we've converged on.
+	// if we have converged on the wrong point, we can try to converge one more time, using a starting estimate of 
+	// the point we converged on rotated to be directly opposite of its current position.  Such a point
+	// is guaranteed, in practice, to converge on the other location.
+	// Note: in practice, we pretty much always converge on the correct point in the first place, 
+	// but this check just makes extra sure.
 	FLT a1 = anglebetween3d(pf1, avgNormF);
-
 	if (a1 > M_PI / 2)
 	{
 		Point p2 = { .x = -refinedEstimateGd.x,.y = -refinedEstimateGd.y,.z = -refinedEstimateGd.z };
 		refinedEstimateGd = RefineEstimateUsingModifiedGradientDescent1(p2, pna, pnaCount, logFile);
-
-		//FLT pf2[3] = { refinedEstimageGd2.x, refinedEstimageGd2.y, refinedEstimageGd2.z };
-
-		//FLT a2 = anglebetween3d(pf2, avgNormF);
-
 	}
 
 	FLT fitGd = getPointFitness(refinedEstimateGd, pna, pnaCount, 0);
 
 	FLT distance = FLT_SQRT(SQUARED(refinedEstimateGd.x) + SQUARED(refinedEstimateGd.y) + SQUARED(refinedEstimateGd.z));
-	printf(" la(% 04.4f) SnsrCnt(%2d) LhPos:(% 04.4f, % 04.4f, % 04.4f) Dist: % 08.8f ", largestAngle, (int)obj->numSensors, refinedEstimateGd.x, refinedEstimateGd.y, refinedEstimateGd.z, distance);
+	if (ttDebug) printf(" la(% 04.4f) SnsrCnt(%2d) LhPos:(% 04.4f, % 04.4f, % 04.4f) Dist: % 08.8f ", largestAngle, (int)obj->numSensors, refinedEstimateGd.x, refinedEstimateGd.y, refinedEstimateGd.z, distance);
 	//printf("Distance is %f,   Fitness is %f\n", distance, fitGd);
 
 	FLT rot[4]; // this is axis/ angle rotation, not a quaternion!
+	FLT rotQuat[4]; // this is a quaternion!
 
-	if (toriData->lastLhRotAxisAngle[lh][0] != 0)
-	{
-		rot[0] = toriData->lastLhRotAxisAngle[lh][0];
-		rot[1] = toriData->lastLhRotAxisAngle[lh][1];
-		rot[2] = toriData->lastLhRotAxisAngle[lh][2];
-		rot[3] = toriData->lastLhRotAxisAngle[lh][3];
-	}
+	// if we've already guessed at the rotation of the lighthouse,
+	// then let's use that as a starting guess, because it's probably
+	// going to make convergence happen much faster.
+	//if (toriData->lastLhRotAxisAngle[lh][0] != 0)
+	//{
+	//	rot[0] = toriData->lastLhRotAxisAngle[lh][0];
+	//	rot[1] = toriData->lastLhRotAxisAngle[lh][1];
+	//	rot[2] = toriData->lastLhRotAxisAngle[lh][2];
+	//	rot[3] = toriData->lastLhRotAxisAngle[lh][3];
+	//}
+	//if (toriData->lastLhRotQuat[lh][0] != 0)
+	//{
+	//	rotQuat[0] = toriData->lastLhRotQuat[lh][0];
+	//	rotQuat[1] = toriData->lastLhRotQuat[lh][1];
+	//	rotQuat[2] = toriData->lastLhRotQuat[lh][2];
+	//	rotQuat[3] = toriData->lastLhRotQuat[lh][3];
+	//}
 
-
+	// Given the relative position of the lighthouse
+	// to the tracked object, in the tracked object's coordinate
+	// system, find the rotation of the lighthouse, again in the
+	// tracked object's coordinate system.
+	// TODO: I believe this could be radically improved
+	// using an SVD.  
+	SolveForRotationQuat(rotQuat, obj, refinedEstimateGd);
 	SolveForRotation(rot, obj, refinedEstimateGd);
 	FLT objPos[3];
-
-	{
-		toriData->lastLhRotAxisAngle[lh][0] = rot[0];
-		toriData->lastLhRotAxisAngle[lh][1] = rot[1];
-		toriData->lastLhRotAxisAngle[lh][2] = rot[2];
-		toriData->lastLhRotAxisAngle[lh][3] = rot[3];
-	}
-
-	WhereIsTheTrackedObjectAxisAngle(objPos, rot, refinedEstimateGd);
-
-
-	FLT rotQuat[4];
-
-	quatfromaxisangle(rotQuat, rot, rot[3]);
+	FLT objPos2[3];
 
 	//{
-		FLT tmpPos[3] = {refinedEstimateGd.x, refinedEstimateGd.y, refinedEstimateGd.z};
+	//	toriData->lastLhRotQuat[lh][0] = rotQuat[0];
+	//	toriData->lastLhRotQuat[lh][1] = rotQuat[1];
+	//	toriData->lastLhRotQuat[lh][2] = rotQuat[2];
+	//	toriData->lastLhRotQuat[lh][3] = rotQuat[3];
+	//}
 
-		quatrotatevector(tmpPos, rotQuat, tmpPos);
+
+
+	FLT rotQuat2[4];
+	FLT rot2[4];
+
+	quatfromaxisangle(rotQuat2, rot, rot[3]);
+	axisanglefromquat(&(rot2[3]), rot2, rotQuat);
+
+
+//	WhereIsTheTrackedObjectAxisAngle(objPos, rot, refinedEstimateGd); // this is the original axis angle one
+	WhereIsTheTrackedObjectAxisAngle(objPos, rot2, refinedEstimateGd); // this one is axis angle, but using data derived by quaternions.
+	//	WhereIsTheTrackedObjectQuaternion(objPos, rotQuat, refinedEstimateGd);  <--------------This is hte one we need to use, might need to be fixed.
+
+	//{
+		//FLT tmpPos[3] = {refinedEstimateGd.x, refinedEstimateGd.y, refinedEstimateGd.z};
+
+		//quatrotatevector(tmpPos, rotQuat, tmpPos);
 	//}
 
 	//static int foo = 0;
@@ -1330,16 +1448,43 @@ static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *ob
 		so->ctx->bsd[lh].PositionSet = 1;
 	}
 
+
 	FLT wcPos[3]; // position in wold coordinates
 
+	// Take the position of the tracked object from the lighthouse's
+	// frame of reference, and then rotate it in the reverse
+	// direction of the orientation of the lighthouse
+	// in the world reference freame.
+	// Then, change the offset based on the position of the lighthouse
+	// in the world reference frame.
+	// The result is the position of the tracked object
+	// in the world reference frame.
 	quatrotatevector(wcPos, so->ctx->bsd[lh].Pose.Rot, objPos);
-
-	FLT newOrientation[4];
-	quatrotateabout(newOrientation, rotQuat, so->ctx->bsd[lh].Pose.Rot );
-
 	wcPos[0] += so->ctx->bsd[lh].Pose.Pos[0];
 	wcPos[1] += so->ctx->bsd[lh].Pose.Pos[1];
 	wcPos[2] += so->ctx->bsd[lh].Pose.Pos[2];
+
+	FLT newOrientation[4];
+	//quatrotateabout(newOrientation, rotQuat, so->ctx->bsd[lh].Pose.Rot); // turns the wrong way 
+	quatrotateabout(newOrientation, so->ctx->bsd[lh].Pose.Rot, rotQuat); // turns the wrong way 
+
+	FLT invRot[4];
+	quatgetreciprocal(invRot, rotQuat);
+	//quatrotateabout(newOrientation, invRot, so->ctx->bsd[lh].Pose.Rot); // turns correctly, rotations not aligned
+	//quatrotateabout(newOrientation, so->ctx->bsd[lh].Pose.Rot, invRot); // turns correctly, rotations not aligned
+
+	FLT invPoseRot[4];
+	quatgetreciprocal(invPoseRot, so->ctx->bsd[lh].Pose.Rot);
+
+	//quatrotateabout(newOrientation, rotQuat, invPoseRot); // turns the wrong way, rotations not aligned
+	//quatrotateabout(newOrientation, invPoseRot, rotQuat); // turns the wrong way, rotations not aligned
+
+	//FLT invRot[4];
+	//quatgetreciprocal(invRot, rotQuat);
+	//quatrotateabout(newOrientation, invRot, invPoseRot);  // turns correctly, rotations aligned  <-- This seems to be the best.
+	//quatrotateabout(newOrientation, invPoseRot, invRot);  // turns correctly, rotations aligned, (x & y flipped?)
+
+	quatnormalize(newOrientation, newOrientation);
 
 	so->OutPose.Pos[0] = wcPos[0];
 	so->OutPose.Pos[1] = wcPos[1];
@@ -1350,7 +1495,25 @@ static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *ob
 	so->OutPose.Rot[2] = newOrientation[2];
 	so->OutPose.Rot[3] = newOrientation[3];
 
-	printf(" <% 04.4f, % 04.4f, % 04.4f >  ", wcPos[0], wcPos[1], wcPos[2]);
+	so->FromLHPose[lh].Pos[0] = so->OutPose.Pos[0];
+	so->FromLHPose[lh].Pos[1] = so->OutPose.Pos[1];
+	so->FromLHPose[lh].Pos[2] = so->OutPose.Pos[2];
+
+	so->FromLHPose[lh].Rot[0] = so->OutPose.Rot[0];
+	so->FromLHPose[lh].Rot[1] = so->OutPose.Rot[1];
+	so->FromLHPose[lh].Rot[2] = so->OutPose.Rot[2];
+	so->FromLHPose[lh].Rot[3] = so->OutPose.Rot[3];
+
+	if (ttDebug) printf(" <% 04.4f, % 04.4f, % 04.4f >  ", wcPos[0], wcPos[1], wcPos[2]);
+
+	posOut[0] = wcPos[0];
+	posOut[1] = wcPos[1];
+	posOut[2] = wcPos[2];
+
+	quatOut[0] = so->OutPose.Rot[0];
+	quatOut[1] = so->OutPose.Rot[1];
+	quatOut[2] = so->OutPose.Rot[2];
+	quatOut[3] = so->OutPose.Rot[3];
 
 	if (logFile)
 	{
@@ -1362,6 +1525,7 @@ static Point SolveForLighthouse(FLT posOut[3], FLT quatOut[4], TrackedObject *ob
 	toriData->lastLhPos[lh].x = refinedEstimateGd.x;
 	toriData->lastLhPos[lh].y = refinedEstimateGd.y;
 	toriData->lastLhPos[lh].z = refinedEstimateGd.z;
+
 
 	return refinedEstimateGd;
 }
@@ -1453,8 +1617,30 @@ static void QuickPose(SurviveObject *so, int lh)
 		{
 			FLT pos[3], quat[4];
 
+			// TODO: This countdown stuff is a total hack!
+			// it basically ignores all the logic to find the most reliable data points
+			// and just grabs a sample and uses it.
+
+			//static int countdown = 5;
+
+			//if (countdown > 0 && so->ctx->objs[0] == so)
+			//{
+			//	SolveForLighthouse(pos, quat, to, so, 0, lh, 1);
+			//	countdown--;
+			//}
+			//else
+			//{
+			//	SolveForLighthouse(pos, quat, to, so, 0, lh, 0);
+			//}
+			
+
+
+
 			SolveForLighthouse(pos, quat, to, so, 0, lh, 0);
-			printf("!\n");
+
+			printf("P&O: [% 08.8f,% 08.8f,% 08.8f] [% 08.8f,% 08.8f,% 08.8f,% 08.8f]\n", pos[0], pos[1], pos[2], quat[0], quat[1], quat[2], quat[3]);
+
+			if (ttDebug) printf("!\n");
 		}
 
 		
@@ -1473,6 +1659,14 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 	SurviveContext * ctx = so->ctx;
 	ToriData * td = so->PoserData;
 
+	static int firstRun = 1;
+
+	if (firstRun)
+	{
+		ttDebug = config_read_uint32(ctx->global_config_values, "TurveyToriDebug", 0);
+
+		firstRun = 0;
+	}
 
 	if (!td)
 	{
@@ -1523,6 +1717,16 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 				if (counter % 4 == 0)
 					QuickPose(so, 0);
 			}
+			if (1 == l->lh && axis) // only once per full cycle...
+			{
+				static unsigned int counter = 1;
+
+				counter++;
+
+				// let's just do this occasionally for now...
+				if (counter % 4 == 0)
+					QuickPose(so, 1);
+			}
 			// axis changed, time to increment the circular buffer index.
 			td->angleIndex[l->lh][axis]++;
 			td->angleIndex[l->lh][axis] = td->angleIndex[l->lh][axis] % OLD_ANGLES_BUFF_LEN;
@@ -1557,6 +1761,11 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 		//quatfrom2vectors(downQuat, negZ, td->down);
 		quatfrom2vectors(downQuat, td->down, negZ);
 
+		FLT angle;
+		FLT axis[3];
+		angleaxisfrom2vect(&angle, axis, td->down, negZ);
+		//angleaxisfrom2vect(&angle, &axis, negZ, td->down);
+
 		{
 			int sensorCount = 0;
 
@@ -1568,8 +1777,12 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 					FLT norm[3] = { so->sensor_normals[i * 3 + 0] , so->sensor_normals[i * 3 + 1] , so->sensor_normals[i * 3 + 2] };
 					FLT point[3] = { so->sensor_locations[i * 3 + 0] , so->sensor_locations[i * 3 + 1] , so->sensor_locations[i * 3 + 2] };
 
-					//quatrotatevector(norm, downQuat, norm);
-					//quatrotatevector(point, downQuat, point);
+					quatrotatevector(norm, downQuat, norm);
+					quatrotatevector(point, downQuat, point);
+
+					//rotatearoundaxis(norm, norm, axis, angle);
+					//rotatearoundaxis(point, point, axis, angle);
+
 
 					to->sensor[sensorCount].normal.x = norm[0];
 					to->sensor[sensorCount].normal.y = norm[1];
@@ -1600,8 +1813,12 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 					FLT norm[3] = { so->sensor_normals[i * 3 + 0] , so->sensor_normals[i * 3 + 1] , so->sensor_normals[i * 3 + 2] };
 					FLT point[3] = { so->sensor_locations[i * 3 + 0] , so->sensor_locations[i * 3 + 1] , so->sensor_locations[i * 3 + 2] };
 
-					//quatrotatevector(norm, downQuat, norm);
-					//quatrotatevector(point, downQuat, point);
+					quatrotatevector(norm, downQuat, norm);
+					quatrotatevector(point, downQuat, point);
+
+					//rotatearoundaxis(norm, norm, axis, angle);
+					//rotatearoundaxis(point, point, axis, angle);
+
 
 					to->sensor[sensorCount].normal.x = norm[0];
 					to->sensor[sensorCount].normal.y = norm[1];
@@ -1621,6 +1838,24 @@ int PoserTurveyTori( SurviveObject * so, PoserData * poserData )
 
 			SolveForLighthouse(pos, quat, to, so, 0, 1, 1);
 		}
+
+
+		// This code block rotates the lighthouse fixes to account for any time the tracked object
+		// is oriented other than +z = up
+		 //This REALLY DOESN'T WORK!!!
+		//{
+		//	for (int lh = 0; lh < 2; lh++)
+		//	{
+		//		quatrotatevector(&(so->ctx->bsd[lh].Pose.Pos[0]), downQuat, &(so->ctx->bsd[lh].Pose.Pos[0]));
+		//		//quatrotateabout(&(so->ctx->bsd[lh].Pose.Rot[0]), &(so->ctx->bsd[lh].Pose.Rot[0]), downQuat);
+		//		quatrotateabout(&(so->ctx->bsd[lh].Pose.Rot[0]), downQuat, &(so->ctx->bsd[lh].Pose.Rot[0]));
+		//	}
+		//}
+
+		config_set_lighthouse(ctx->lh_config, ctx->bsd[0], 0);
+		config_set_lighthouse(ctx->lh_config, ctx->bsd[1], 1);
+
+		config_save(ctx, "config.json");
 
 		free(to);
 		//printf( "Full scene data.\n" );

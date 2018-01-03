@@ -104,6 +104,81 @@ void rotatearoundaxis(FLT *outvec3, FLT *invec3, FLT *axis, FLT angle)
 	outvec3[2] = w*(u*x + v*y + w*z)*(1-c)   +   z*c   +   (-v*x + u*y)*s;
 }
 
+void angleaxisfrom2vect(FLT *angle, FLT *axis, FLT *src, FLT *dest)
+{
+	FLT v0[3];
+	FLT v1[3];
+	normalize3d(v0, src);
+	normalize3d(v1, dest);
+
+	FLT d = dot3d(v0, v1);// v0.dotProduct(v1);
+
+	// If dot == 1, vectors are the same
+	// If dot == -1, vectors are opposite
+	if (FLT_FABS(d - 1) < DEFAULT_EPSILON)
+	{
+		axis[0] = 0;
+		axis[1] = 1;
+		axis[2] = 0;
+		*angle = 0;
+		return;
+	}
+	else if (FLT_FABS(d + 1) < DEFAULT_EPSILON)
+	{
+		axis[0] = 0;
+		axis[1] = 1;
+		axis[2] = 0;
+		*angle = LINMATHPI;
+		return;
+	}
+
+	FLT v0Len = magnitude3d(v0);
+	FLT v1Len = magnitude3d(v1);
+
+	*angle = FLT_ACOS(d / (v0Len * v1Len));
+
+	//cross3d(c, v0, v1);
+	cross3d(axis, v1, v0);
+
+}
+
+
+void axisanglefromquat(FLT *angle, FLT *axis, FLT *q)
+{
+	// this way might be fine, too.
+	//FLT dist = FLT_SQRT((q[1] * q[1]) + (q[2] * q[2]) + (q[3] * q[3]));
+	//
+	//*angle = 2 * FLT_ATAN2(dist, q[0]);
+
+	//axis[0] = q[1] / dist;
+	//axis[1] = q[2] / dist;
+	//axis[2] = q[3] / dist;
+	
+
+	// Good mathematical foundation for this algorithm found here:
+	// http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToAngle/index.htm
+
+	FLT tmp[4] = { q[0], q[1], q[2], q[3] };
+
+	quatnormalize(tmp, q);
+
+	if (FLT_FABS(q[0] - 1) < FLT_EPSILON)
+	{
+		// we have a degenerate case where we're rotating approx. 0 degrees
+		*angle = 0;
+		axis[0] = 1;
+		axis[1] = 0;
+		axis[2] = 0;
+		return;
+	}
+
+	axis[0] = tmp[1] / sqrt(1 - (tmp[0] * tmp[0]));
+	axis[1] = tmp[2] / sqrt(1 - (tmp[0] * tmp[0]));
+	axis[2] = tmp[3] / sqrt(1 - (tmp[0] * tmp[0]));
+
+	*angle = 2 * FLT_ACOS(tmp[0]);
+}
+
 /////////////////////////////////////QUATERNIONS//////////////////////////////////////////
 //Originally from Mercury (Copyright (C) 2009 by Joshua Allen, Charles Lohr, Adam Lowman)
 //Under the mit/X11 license.
@@ -259,35 +334,37 @@ void quatfrommatrix( FLT * q, const FLT * matrix44 )
 }
 
 
+// Algorithm from http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/
 void quattomatrix33(FLT * matrix33, const FLT * qin)
 {
 	FLT q[4];
 	quatnormalize(q, qin);
 
 	//Reduced calulation for speed
-	FLT xx = 2 * q[0] * q[0];
-	FLT xy = 2 * q[0] * q[1];
-	FLT xz = 2 * q[0] * q[2];
-	FLT xw = 2 * q[0] * q[3];
+	FLT xx = 2 * q[1] * q[1];
+	FLT xy = 2 * q[1] * q[2];
+	FLT xz = 2 * q[1] * q[3];
+	FLT xw = 2 * q[1] * q[0];
 
-	FLT yy = 2 * q[1] * q[1];
-	FLT yz = 2 * q[1] * q[2];
-	FLT yw = 2 * q[1] * q[3];
+	FLT yy = 2 * q[2] * q[2];
+	FLT yz = 2 * q[2] * q[3];
+	FLT yw = 2 * q[2] * q[0];
 
-	FLT zz = 2 * q[2] * q[2];
-	FLT zw = 2 * q[2] * q[3];
+	FLT zz = 2 * q[3] * q[3];
+	FLT zw = 2 * q[3] * q[0];
+
 
 	//opengl major
 	matrix33[0] = 1 - yy - zz;
-	matrix33[1] = xy - zw;
-	matrix33[2] = xz + yw;
+	matrix33[1] = xy + zw;
+	matrix33[2] = xz - yw;
 
-	matrix33[3] = xy + zw;
+	matrix33[3] = xy - zw;
 	matrix33[4] = 1 - xx - zz;
-	matrix33[5] = yz - xw;
+	matrix33[5] = yz + xw;
 
-	matrix33[6] = xz - yw;
-	matrix33[7] = yz + xw;
+	matrix33[6] = xz + yw;
+	matrix33[7] = yz - xw;
 	matrix33[8] = 1 - xx - yy;
 }
 
